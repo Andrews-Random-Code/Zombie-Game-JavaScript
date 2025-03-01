@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang = "en">
+<head>
+	<meta charset = "utf-8">
+	<meta name = "viewport" content="width=device-width, initial-scale=1.0">
+	<title>Zombie Horde</title>
+	<style>
+		body {
+			display:flex;
+			flex-direction: column;
+			align-items: center;
+			height: 100vh;
+			background-color: black;
+			margin: 0;
+			font-family: Verdana, sans-serif;
+		}
+		canvas {
+			border: 1px solid white;
+		}
+	</style>
+</head>
+<body>
+	<canvas id="playSpace" width="700" height="700"></canvas>
+	<script>
+		const canvas = document.getElementById("playSpace");
+		const context = canvas.getContext("2d");
+
+		//fps control variables
+		const fps = 60;
+		const fpsInterval = 1000/fps;
+		var then = performance.now();
+
+		var keys = {};
+		var moveUp = "w", moveRight = "d", moveLeft = "a", moveDown = "s";
+		var mousePos = [];
+		var mouseClick = false;
+		var mouseClickRecent = false;
+		let gameOn = true;
+		let gameTime = 0;
+
+		let ammoList = [];
+		let zombieList = [];
+//MAIN LOOP
+		function gameLoop(){
+			if(fpsControl()){
+				update();
+				render();
+				gameTime++;
+			}
+			requestAnimationFrame(gameLoop);
+		}
+
+		function update(){
+			movePlayer();
+			shootWeapon();
+			moveAmmo();
+			zombieSpawn();
+			moveZombie();
+		}
+
+		function render(){
+			context.clearRect(0, 0, canvas.width, canvas.height);
+			drawPlayer();
+			drawAmmo();
+			drawZombie();
+
+			tester();
+		}
+
+		function fpsControl(){
+			var now = performance.now();
+			var elapsed = now - then;
+			if(elapsed >= fpsInterval){
+				then = now - (elapsed % fpsInterval);
+				return true;
+			}
+			return false;
+		}
+//PLAYER
+		const player = {
+			x: canvas.width/2,
+			y: canvas.height/2,
+			orientation: 0,
+			scale: 2,
+			speedX: 0,
+			speedY: 0,
+			topSpeed: 3,
+			acceleration: 0.5,
+			hitbox: new Path2D(),
+			rifleXOffset: 5,
+		}
+
+		function movePlayer(){
+			if(!gameOn){
+				return;
+			}
+			let dx = 0, dy = 0;
+			if(keys[moveUp]){
+				dy -= player.acceleration;
+			}
+			if(keys[moveRight]){
+				dx += player.acceleration;
+			}
+			if(keys[moveDown]){
+				dy += player.acceleration;
+			}
+			if(keys[moveLeft]){
+				dx -= player.acceleration;
+			}
+
+			//splits speed by 45 degrees.
+			if(dy === dx && dx != 0 || dy + dx === 0 && dx != 0){
+				dx = dx * Math.sqrt(2);
+				dy = dy * Math.sqrt(2);
+			}
+			
+			//slow down
+			if(dx === 0){
+				if(player.speedX > 0){
+					player.speedX -= player.acceleration;
+				} else if(player.speedX < 0){
+					player.speedX += player.acceleration;
+				}
+				if(Math.abs(player.speedX) < player.acceleration){
+					player.speedX = 0;
+				}
+			}
+			if(dy === 0){
+				if(player.speedY > 0){
+					player.speedY -= player.acceleration;
+				} else if(player.speedY < 0){
+					player.speedY += player.acceleration;
+				}
+				if(Math.abs(player.speedY) < player.acceleration){
+					player.speedY = 0;
+				}
+			}
+			
+
+			if(Math.abs(player.speedX) < player.topSpeed){
+				player.speedX += dx;
+			}
+			if(Math.abs(player.speedY) < player.topSpeed){
+				player.speedY += dy;
+			}
+
+			player.x += player.speedX;
+			player.y += player.speedY;
+
+			//aiming
+			//I am aware this is not how atan2 works. It should be (y,x). I can't get that to work. -(x,y) does.
+			player.orientation = -Math.atan2((player.x - mousePos[0]), (player.y - mousePos[1])); //works because canvas is inverted on y
+			const gunPos = [Math.cos(-player.orientation) * player.rifleXOffset,
+					Math.sin(-player.orientation) * player.rifleXOffset];
+			player.orientation = -Math.atan2((player.x + gunPos[0] - mousePos[0]), (player.y - gunPos[1] - mousePos[1])); //realigned with rifle
+
+			playerWallCollision();
+		}
+
+		function drawPlayer(){
+			context.save();
+			context.translate(player.x, player.y);
+			context.rotate(player.orientation);
+
+			let head = new Path2D();
+			head.arc(0, 0, player.scale * 5, 0, 2 * Math.PI);
+
+			let shoulders = new Path2D();
+			const shoulderWidth = 17 * player.scale;
+			const shoulderHeight = 6 * player.scale;
+			shoulders.roundRect(0 - shoulderWidth/2, 0 - shoulderHeight/2, shoulderWidth, shoulderHeight, 5);
+
+			let rifle = new Path2D();
+			const rifleWidth = 2 * player.scale;
+			const rifleLength = 13 * player.scale;
+			rifle.roundRect(player.rifleXOffset, 0, rifleWidth, -rifleLength, 2);
+
+			let leftArm = new Path2D();
+			const armWidth = 3 * player.scale;
+			let armOffsetX = -7.5 * player.scale;
+			leftArm.moveTo(armOffsetX, 0);
+			leftArm.lineTo(player.rifleXOffset + 5, -rifleLength + 6);
+			
+			let rightArm = new Path2D();
+			armOffsetX = 5 * player.scale;
+			rightArm.moveTo(armOffsetX, 0);
+			rightArm.lineTo(armOffsetX, -10);
+
+			context.lineWidth = armWidth;
+			context.strokeStyle = "white";
+			context.stroke(leftArm);
+			context.stroke(rightArm);
+			context.fillStyle = "grey";
+			context.fill(rifle);
+			context.fillStyle = "red";
+			context.fill(shoulders);
+			context.fillStyle = "brown";
+			context.fill(head);
+
+			let hitbox = new Path2D();
+			hitbox.addPath(head);
+			hitbox.addPath(shoulders);
+			hitbox.addPath(rifle);
+			hitbox.addPath(leftArm);	
+			player.hitbox = hitbox;			
+
+			context.restore();
+		}
+
+		function playerWallCollision(){
+			let yCheck = 0;
+			let xCheck = 0;
+
+			if(player.x > canvas.width/2){
+				xCheck = canvas.width;
+			}
+			if(player.y > canvas.height/2){
+				yCheck = canvas.height;
+			}
+
+			let xList = [];
+			let yList = [];
+			const gapSize = 50;
+			for(let i = 0; i < gapSize; i += 5){
+				yList.push([player.x - (gapSize/2) + i, yCheck]);
+				xList.push([xCheck, player.y - (gapSize/2) + i]);
+			}
+
+			xList.forEach(point => {
+				context.save();
+    				context.translate(player.x, player.y);
+    				context.rotate(player.orientation);
+				let check = context.isPointInPath(player.hitbox, point[0], point[1]);
+				context.restore();
+				if(check){
+					if(xCheck == 0){
+						player.x += 1;
+					} else {
+						player.x -= 1;
+					}
+					player.xSpeed = 0;
+				}
+			});
+
+			yList.forEach(point => {
+				context.save();
+    				context.translate(player.x, player.y);
+    				context.rotate(player.orientation);
+				let check = context.isPointInPath(player.hitbox, point[0], point[1]);
+				context.restore();
+				if(check){
+					if(yCheck == 0){
+						player.y += 1;
+					} else {
+						player.y -= 1;
+					}
+					player.ySpeed = 0;
+				}
+			});
+		}
+//WEAPON
+		const baseWeapon = {
+			damage: 10,
+			coolDownMax: 10,
+			coolDownCurrent: 0,
+			spread: 5 * (Math.PI/180),
+			bulletSpeed: 10,
+			bulletRadius: 2,
+		};
+
+		function bulletSpecs(x, y, dx, dy, damage){
+			this.x = x;
+			this.y = y;
+			this.dx = dx;
+			this.dy = dy;
+			this.damage = damage;
+			this.visible = true;
+		}
+
+		function shootWeapon(){
+			if(!gameOn){
+				return;
+			}
+
+			if(mouseClick){
+				if(baseWeapon.coolDownCurrent <= 0){
+					const dx = Math.sin(player.orientation) * baseWeapon.bulletSpeed;
+					const dy = -(Math.cos(player.orientation) * baseWeapon.bulletSpeed);
+					const tempX = player.x + player.rifleXOffset + 2;
+					const tempY = player.y - 13 * player.scale;
+					const newX = player.x + Math.cos(player.orientation) * (tempX - player.x) - Math.sin(player.orientation) * (tempY - player.y);
+					const newY = player.y + Math.sin(player.orientation) * (tempX - player.x) + Math.cos(player.orientation) * (tempY - player.y);
+					const bullet = new bulletSpecs(newX, newY, dx, dy, baseWeapon.damage);
+					ammoList.push(bullet);
+					baseWeapon.coolDownCurrent = baseWeapon.coolDownMax;
+				}
+			}
+			if(baseWeapon.coolDownCurrent > 0){
+				baseWeapon.coolDownCurrent--;
+				console.log("tripped");
+			}
+		}
+
+		function moveAmmo(){
+			ammoList.forEach(bullet => {
+				bullet.x += bullet.dx;
+				bullet.y += bullet.dy;
+				if(bullet.x > canvas.width || bullet.x < 0){
+					bullet.visible = false;
+				} else if(bullet.y > canvas.height || bullet.y < 0){
+					bullet.visible = false;
+				}
+			});
+			ammoList = ammoList.filter(bullet => bullet.visible);
+		}
+
+		function drawAmmo(){
+			context.save();
+			ammoList.forEach(bullet => {
+				context.fillStyle = "yellow";
+				context.beginPath();
+				context.arc(bullet.x, bullet.y, 2, 0, Math.PI * 2);
+				context.closePath();
+				context.fill();
+			});
+			context.restore();
+		}
+//ZOMBIE
+		function zombieSpecs(x, y){
+			this.x = x;
+			this.y = y;
+			this.orientation = 0;
+			this.scale = 2;
+			this.speed= 0;
+			this.rotationSpeed = 1/2000 * (180/Math.PI); //degrees per frame to radians
+			this.topSpeed = 3;
+			this.acceleration = 1/100;
+			this.hitbox = new Path2D();
+			this.health = 50;
+		}
+
+		function moveZombie(){
+			if(!gameOn){
+				return;
+			}
+			zombieList.forEach(zombie => {
+				const angle = -Math.atan2((player.x - zombie.x), (player.y - zombie.y));
+				const normalizeAngle = angle => (angle + 2 * Math.PI) % (2 * Math.PI);
+
+				const zombieAngle = normalizeAngle(zombie.orientation);
+				const normAngle = normalizeAngle(angle);
+				let angleDifference = normAngle - zombieAngle;
+
+				if(angleDifference > Math.PI){
+					angleDifference -= 2 * Math.PI;
+				} else if(angleDifference < -Math.PI){
+					angleDifference += 2 * Math.PI;
+				}
+
+				if(Math.abs(angleDifference) <= zombie.rotationSpeed){
+					zombie.orientation = angle;
+				} else {
+					zombie.orientation += Math.sign(angleDifference) * zombie.rotationSpeed;
+				}
+
+				if(Math.abs(angleDifference) <= Math.PI/2){
+					if(zombie.speed < zombie.topSpeed){
+						zombie.speed += zombie.acceleration;
+					}
+				} else {
+					if(zombie.speed > 0){
+						zombie.speed -= zombie.acceleration * 3;
+					}
+				}
+
+				const dx = -Math.sin(zombie.orientation) * zombie.speed;
+				const dy = Math.cos(zombie.orientation) * zombie.speed;
+				
+				zombie.x += dx;
+				zombie.y += dy;
+			});
+		}
+
+		function drawZombie(){
+			zombieList.forEach(zombie => {
+				context.save();
+				context.translate(zombie.x, zombie.y);
+				context.rotate(zombie.orientation);
+
+				let head = new Path2D();
+				head.arc(0, 0, zombie.scale * 5, 0, 2 * Math.PI);
+
+				let shoulders = new Path2D();
+				let shoulderWidth = 17 * zombie.scale;
+				let shoulderHeight = 6 * zombie.scale;
+				shoulders.roundRect(0 - shoulderWidth/2, 0 - shoulderHeight/2, shoulderWidth, shoulderHeight, 5);	
+
+				let leftArm = new Path2D();
+				let armWidth = 3 * zombie.scale;
+				let armLength = 10 * zombie.scale;
+				let armOffsetX = -7.5 * zombie.scale;
+				leftArm.roundRect(armOffsetX, -1, armWidth, armLength, 5);
+			
+				let rightArm = new Path2D();
+				armOffsetX = 7.5 * player.scale;
+				rightArm.roundRect(armOffsetX, -1, armWidth, armLength, 5);
+				
+				context.fillStyle = "green";
+				context.fill(leftArm);
+				context.fill(rightArm);
+				context.fill(shoulders);
+				context.fill(head);
+				context.strokeStyle = "black";
+				context.lineWidth = 1;
+				context.stroke(head);
+
+				let hitbox = new Path2D();
+				hitbox.addPath(head);
+				hitbox.addPath(shoulders);
+				hitbox.addPath(rightArm);
+				hitbox.addPath(leftArm);	
+				zombie.hitbox = hitbox;			
+				context.restore();
+			});
+		}
+
+		function zombieSpawn(){
+			//reuse asteroid spawn time
+			if(zombieList.length == 0 && gameTime > 0){
+				newZombie();
+			}
+		}
+
+		function newZombie(){
+			let locX, locY;
+
+			locX = 100;
+			locY = 100;
+			/*
+			if(Math.round(Math.random()) == 0){
+				if(Math.round(Math.random()) == 0){
+					locX = -100;
+				} else {
+					locX = canvas.width + 100;
+				}
+				locY = (Math.floor(Math.random() * (canvas.width + 100)) - 100);
+			} else {
+				if(Math.round(Math.random()) == 0){
+					locY = -100;
+				} else {
+					locY = canvas.width + 100;
+				}
+				locX = (Math.floor(Math.random() * (canvas.width + 100)) - 100);
+			}
+			*/
+			const zombie = new zombieSpecs(locX, locY);
+			zombieList.push(zombie);
+		}
+
+//TEST STUFF
+		function tester(){
+			const point = [100,200];
+			context.save();
+			
+			let path = new Path2D();
+			path.arc(point[0], point[1], 5, 0, 2 * Math.PI);
+
+    			context.fillStyle = "white";
+    			context.fill(path);
+
+    			// Create a transformed hitbox path to check the point
+    			context.translate(player.x, player.y);
+    			context.rotate(player.orientation);
+
+    			if (context.isPointInPath(player.hitbox, point[0], point[1])) {
+				context.restore();
+				context.save();
+        			context.fillStyle = "blue";
+				context.fill(path);
+    			}
+			context.restore();
+		}
+
+//INPUTS
+		document.addEventListener("keydown", (event) => {
+			keys[event.key] = true;
+		});
+
+		document.addEventListener("keyup", (event) => { 
+			keys[event.key] = false;
+		});
+
+		canvas.addEventListener("mousemove", (event) => { 
+			mousePos[0] = event.offsetX; 
+			mousePos[1] = event.offsetY; 
+		});
+
+		canvas.addEventListener("mousedown", (event) => {
+			mouseClick = true;
+			mouseClickRecent = true;
+		});
+
+		canvas.addEventListener("mouseup", (event) => {
+			mouseClick = false;
+		});
+
+	gameLoop();
+	</script>
+</body>
+</html>
