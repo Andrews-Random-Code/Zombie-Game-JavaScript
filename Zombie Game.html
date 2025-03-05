@@ -64,7 +64,7 @@
 			drawAmmo();
 			drawZombie();
 
-			tester();
+			//tester();
 		}
 
 		function fpsControl(){
@@ -154,6 +154,7 @@
 					Math.sin(-player.orientation) * player.rifleXOffset];
 			player.orientation = -Math.atan2((player.x + gunPos[0] - mousePos[0]), (player.y - gunPos[1] - mousePos[1])); //realigned with rifle
 
+			playerZombieCollisionResolve();
 			playerWallCollision();
 		}
 
@@ -335,8 +336,16 @@
 			this.rotationSpeed = 1/2000 * (180/Math.PI); //degrees per frame to radians
 			this.topSpeed = 3;
 			this.acceleration = 1/100;
+			this.shoulderWidth = 17 * this.scale;
+			this.shoulderHeight = 6 * this.scale;
+			this.armWidth = 3 * this.scale;
+			this.armLength = 10 * this.scale;
+			this.armLeftOffsetX = -7.5 * this.scale;
+			this.armRightOffsetX = 7.5 * this.scale;
 			this.hitbox = new Path2D();
 			this.health = 50;
+			this.disableMax = 120;
+			this.disableTimer = 0;
 		}
 
 		function moveZombie(){
@@ -344,6 +353,11 @@
 				return;
 			}
 			zombieList.forEach(zombie => {
+				if(zombie.disableTimer > 0){
+					zombie.disableTimer--;
+					return;
+				}
+
 				const angle = -Math.atan2((player.x - zombie.x), (player.y - zombie.y));
 				const normalizeAngle = angle => (angle + 2 * Math.PI) % (2 * Math.PI);
 
@@ -378,6 +392,7 @@
 				
 				zombie.x += dx;
 				zombie.y += dy;
+				
 			});
 		}
 
@@ -391,19 +406,13 @@
 				head.arc(0, 0, zombie.scale * 5, 0, 2 * Math.PI);
 
 				let shoulders = new Path2D();
-				let shoulderWidth = 17 * zombie.scale;
-				let shoulderHeight = 6 * zombie.scale;
-				shoulders.roundRect(0 - shoulderWidth/2, 0 - shoulderHeight/2, shoulderWidth, shoulderHeight, 5);	
+				shoulders.roundRect(0 - zombie.shoulderWidth/2, 0 - zombie.shoulderHeight/2, zombie.shoulderWidth, zombie.shoulderHeight, 5);	
 
 				let leftArm = new Path2D();
-				let armWidth = 3 * zombie.scale;
-				let armLength = 10 * zombie.scale;
-				let armOffsetX = -7.5 * zombie.scale;
-				leftArm.roundRect(armOffsetX, -1, armWidth, armLength, 5);
+				leftArm.roundRect(zombie.armLeftOffsetX, -1, zombie.armWidth, zombie.armLength, 5);
 			
 				let rightArm = new Path2D();
-				armOffsetX = 7.5 * player.scale;
-				rightArm.roundRect(armOffsetX, -1, armWidth, armLength, 5);
+				rightArm.roundRect(zombie.armRightOffsetX, -1, -zombie.armWidth, zombie.armLength, 5);
 				
 				context.fillStyle = "green";
 				context.fill(leftArm);
@@ -457,6 +466,110 @@
 			zombieList.push(zombie);
 		}
 
+//ZOMBIE COLLISION
+		function playerZombieCollisionResolve(){
+			zombieList.forEach(zombie => {
+				let sidePoints = zombiePointMap(zombie);
+				let damagePoints = zombiePointMapDamage(zombie);
+
+				sidePoints = rotateAboutZombie(zombie, sidePoints);
+				damagePoints = rotateAboutZombie(zombie, damagePoints);
+
+				if(zombiePlayerCollisionDetector(zombie, sidePoints, damagePoints)){
+					zombie.speed = 0;
+					zombie.disableTimer = zombie.disableMax;
+					while(zombiePlayerCollisionDetector(zombie, sidePoints, damagePoints)){
+						let xDiff = player.x - zombie.x;
+						let yDiff = player.y - zombie.y;
+						if(Math.abs(xDiff) > Math.abs(yDiff)){
+							player.x += Math.sign(xDiff) * 1;
+						} else {
+							player.y += Math.sign(yDiff) * 1;
+						}
+					}
+				}
+			});
+		}
+		
+		function zombiePlayerCollisionDetector(zombie, sidePoints, damagePoints){
+			const xDiff = Math.abs(zombie.x - player.x);
+			const yDiff = Math.abs(zombie.y - player.y);
+			if(xDiff < 20 * zombie.scale && yDiff < 20 * zombie.scale){
+				for(let i = 0; i < sidePoints.length; i++){
+					context.save();
+    					context.translate(player.x, player.y);
+    					context.rotate(player.orientation);
+					if(context.isPointInPath(player.hitbox, sidePoints[i][0], sidePoints[i][1])){
+						context.restore();
+						return true;
+					}
+					context.restore();
+				}
+
+				for(let i = 0; i < damagePoints.length; i++){
+					context.save();
+    					context.translate(player.x, player.y);
+    					context.rotate(player.orientation);
+					if(context.isPointInPath(player.hitbox, damagePoints[i][0], damagePoints[i][1])){
+						context.restore();
+						return true;
+					}
+					context.restore();
+				}
+			}
+			return false;
+		}
+
+		function zombiePointMap(zombie){
+			let pointList = [];
+			
+			//shoulder
+			for(let i = 0; i < 10; i++){
+				const x = zombie.x - zombie.shoulderWidth/2 + (zombie.shoulderWidth * (i/10));
+				const y = zombie.y + zombie.shoulderHeight/2;
+				pointList.push([x, y]);
+			}
+
+			//left arm
+			for(let i = 0; i < 10; i++){
+				const x = zombie.x - zombie.armLeftOffsetX - zombie.armWidth;
+				const y = zombie.y + zombie.armLength + (zombie.armLength * (i/10));
+				pointList.push([x, y]);
+			}
+
+			//right arm
+			for(let i = 0; i < 10; i++){
+				const x = zombie.x + zombie.armRightOffsetX + zombie.armWidth;
+				const y = zombie.y + zombie.armLength + (zombie.armLength * (i/10));
+				pointList.push([x, y]);
+			}
+			
+			return pointList;
+		}
+
+		function zombiePointMapDamage(zombie){
+			let pointList = [];
+
+			for(let i = 0; i < 10; i++){
+				const x = zombie.x - zombie.armLeftOffsetX - zombie.armWidth + (zombie.shoulderWidth * (i/10));
+				const y = zombie.y + zombie.armLength;
+				pointList.push([x, y]);
+			}
+
+			return pointList;
+		}
+
+		function rotateAboutZombie(zombie, pointList){
+			const rad = zombie.orientation;
+			for(let i = 0; i < pointList.length; i++){
+				const newX = zombie.x + Math.cos(rad) * (pointList[i][0] - zombie.x) - Math.sin(rad) * (pointList[i][1] - zombie.y);
+				const newY = zombie.y + Math.sin(rad) * (pointList[i][0] - zombie.x) + Math.cos(rad) * (pointList[i][1] - zombie.y);
+				pointList[i][0] = newX;
+				pointList[i][1] = newY;
+			}
+			return pointList;
+		}
+
 //TEST STUFF
 		function tester(){
 			const point = [100,200];
@@ -480,7 +593,6 @@
     			}
 			context.restore();
 		}
-
 //INPUTS
 		document.addEventListener("keydown", (event) => {
 			keys[event.key] = true;
