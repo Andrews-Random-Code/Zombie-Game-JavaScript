@@ -56,6 +56,15 @@
 			moveAmmo();
 			zombieSpawn();
 			moveZombie();
+	
+			console.log(player.health);
+			if(player.health <= 0){
+				alert("The player is dead");
+				//prevent loop
+				setTimeout(() => {
+        				window.location.reload();
+    				}, 0);
+			}
 		}
 
 		function render(){
@@ -88,6 +97,8 @@
 			acceleration: 0.5,
 			hitbox: new Path2D(),
 			rifleXOffset: 5,
+			health: 100,
+			hurt: false,
 		}
 
 		function movePlayer(){
@@ -262,7 +273,7 @@
 //WEAPON
 		const baseWeapon = {
 			damage: 10,
-			coolDownMax: 10,
+			coolDownMax: 40,
 			coolDownCurrent: 0,
 			spread: 5 * (Math.PI/180),
 			bulletSpeed: 10,
@@ -275,6 +286,7 @@
 			this.dx = dx;
 			this.dy = dy;
 			this.damage = damage;
+			this.knockback = 0.50;
 			this.visible = true;
 		}
 
@@ -298,7 +310,6 @@
 			}
 			if(baseWeapon.coolDownCurrent > 0){
 				baseWeapon.coolDownCurrent--;
-				console.log("tripped");
 			}
 		}
 
@@ -309,6 +320,9 @@
 				if(bullet.x > canvas.width || bullet.x < 0){
 					bullet.visible = false;
 				} else if(bullet.y > canvas.height || bullet.y < 0){
+					bullet.visible = false;
+				}
+				if(ammoCollision(bullet)){
 					bullet.visible = false;
 				}
 			});
@@ -326,13 +340,35 @@
 			});
 			context.restore();
 		}
+
+		function ammoCollision(bullet){
+			let collision = false;
+			zombieList.forEach(zombie => {
+				if(collision){return};
+				context.save();
+    				context.translate(zombie.x, zombie.y);
+    				context.rotate(zombie.orientation);
+				if(context.isPointInPath(zombie.hitbox, bullet.x, bullet.y)){
+					zombie.speed -= zombie.speed * bullet.knockback;
+					zombie.health -= bullet.damage;
+					if(zombie.health <= 0){
+						zombie.visible = false;
+					}
+					zombieList = zombieList.filter(zombie => zombie.visible);
+					context.restore();
+					collision = true;
+				}
+				context.restore();
+			});
+			return collision;
+		}
 //ZOMBIE
 		function zombieSpecs(x, y){
 			this.x = x;
 			this.y = y;
 			this.orientation = 0;
 			this.scale = 2;
-			this.speed= 0;
+			this.speed = 0;
 			this.rotationSpeed = 1/2000 * (180/Math.PI); //degrees per frame to radians
 			this.topSpeed = 3;
 			this.acceleration = 1/100;
@@ -346,6 +382,7 @@
 			this.health = 50;
 			this.disableMax = 120;
 			this.disableTimer = 0;
+			this.visible = true;
 		}
 
 		function moveZombie(){
@@ -393,6 +430,7 @@
 				zombie.x += dx;
 				zombie.y += dy;
 				
+				zombieToZombieCollisionResolve(zombie);
 			});
 		}
 
@@ -438,14 +476,15 @@
 			if(zombieList.length == 0 && gameTime > 0){
 				newZombie();
 			}
+			if(zombieList.length < 25){
+				if(gameTime % 120 == 0){
+					newZombie();
+				}
+			}
 		}
 
 		function newZombie(){
 			let locX, locY;
-
-			locX = 100;
-			locY = 100;
-			/*
 			if(Math.round(Math.random()) == 0){
 				if(Math.round(Math.random()) == 0){
 					locX = -100;
@@ -461,7 +500,6 @@
 				}
 				locX = (Math.floor(Math.random() * (canvas.width + 100)) - 100);
 			}
-			*/
 			const zombie = new zombieSpecs(locX, locY);
 			zombieList.push(zombie);
 		}
@@ -489,34 +527,86 @@
 					}
 				}
 			});
+
+			if(player.hurt){
+				player.health -= 20;
+				player.hurt = false;
+			}
 		}
 		
 		function zombiePlayerCollisionDetector(zombie, sidePoints, damagePoints){
 			const xDiff = Math.abs(zombie.x - player.x);
 			const yDiff = Math.abs(zombie.y - player.y);
+			context.save();
+    			context.translate(player.x, player.y);
+    			context.rotate(player.orientation);
 			if(xDiff < 20 * zombie.scale && yDiff < 20 * zombie.scale){
 				for(let i = 0; i < sidePoints.length; i++){
-					context.save();
-    					context.translate(player.x, player.y);
-    					context.rotate(player.orientation);
 					if(context.isPointInPath(player.hitbox, sidePoints[i][0], sidePoints[i][1])){
 						context.restore();
 						return true;
 					}
-					context.restore();
 				}
 
 				for(let i = 0; i < damagePoints.length; i++){
-					context.save();
-    					context.translate(player.x, player.y);
-    					context.rotate(player.orientation);
 					if(context.isPointInPath(player.hitbox, damagePoints[i][0], damagePoints[i][1])){
+						context.restore();
+						player.hurt = true;
+						return true;
+					}
+				}
+			}
+			context.restore();
+			return false;
+		}
+
+		function zombieToZombieCollisionResolve(zombie1){
+			zombieList.forEach(zombie2 => {
+				if(zombie1.x === zombie2.x && zombie1.y === zombie2.y){
+					return;
+				}
+				let sidePoints = zombiePointMap(zombie2);
+				let damagePoints = zombiePointMapDamage(zombie2);
+
+				sidePoints = rotateAboutZombie(zombie2, sidePoints);
+				damagePoints = rotateAboutZombie(zombie2, damagePoints);
+					
+				if(zombieToZombieCollisionDetector(zombie1, zombie2, sidePoints, damagePoints)){
+					while(zombieToZombieCollisionDetector(zombie1, zombie2, sidePoints, damagePoints)){
+						let xDiff = zombie1.x - zombie2.x;
+						let yDiff = zombie1.y - zombie2.y;
+						if(Math.abs(xDiff) > Math.abs(yDiff)){
+							zombie1.x += Math.sign(xDiff) * 1;
+						} else {
+							zombie1.y += Math.sign(yDiff) * 1;
+						}
+					}
+				}
+			});
+		}
+
+		function zombieToZombieCollisionDetector(zombie1, zombie2, sidePoints, damagePoints){
+			const xDiff = Math.abs(zombie1.x - zombie2.x);
+			const yDiff = Math.abs(zombie1.y - zombie2.y);
+			context.save();
+    			context.translate(zombie1.x, zombie1.y);
+    			context.rotate(zombie1.orientation);
+			if(xDiff < 20 * zombie1.scale && yDiff < 20 * zombie1.scale){
+				for(let i = 0; i < sidePoints.length; i++){
+					if(context.isPointInPath(zombie1.hitbox, sidePoints[i][0], sidePoints[i][1])){
 						context.restore();
 						return true;
 					}
-					context.restore();
+				}
+
+				for(let i = 0; i < damagePoints.length; i++){
+					if(context.isPointInPath(zombie1.hitbox, damagePoints[i][0], damagePoints[i][1])){
+						context.restore();
+						return true;
+					}
 				}
 			}
+			context.restore();
 			return false;
 		}
 
@@ -533,14 +623,14 @@
 			//left arm
 			for(let i = 0; i < 10; i++){
 				const x = zombie.x - zombie.armLeftOffsetX - zombie.armWidth;
-				const y = zombie.y + zombie.armLength + (zombie.armLength * (i/10));
+				const y = zombie.y + (zombie.armLength * (i/10));
 				pointList.push([x, y]);
 			}
 
 			//right arm
 			for(let i = 0; i < 10; i++){
 				const x = zombie.x + zombie.armRightOffsetX + zombie.armWidth;
-				const y = zombie.y + zombie.armLength + (zombie.armLength * (i/10));
+				const y = zombie.y + (zombie.armLength * (i/10));
 				pointList.push([x, y]);
 			}
 			
