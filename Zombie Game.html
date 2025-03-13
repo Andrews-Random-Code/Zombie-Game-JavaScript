@@ -394,7 +394,6 @@
 					zombie.disableTimer--;
 					return;
 				}
-
 				const angle = -Math.atan2((player.x - zombie.x), (player.y - zombie.y));
 				const normalizeAngle = angle => (angle + 2 * Math.PI) % (2 * Math.PI);
 
@@ -408,29 +407,31 @@
 					angleDifference += 2 * Math.PI;
 				}
 
-				if(Math.abs(angleDifference) <= zombie.rotationSpeed){
-					zombie.orientation = angle;
-				} else {
-					zombie.orientation += Math.sign(angleDifference) * zombie.rotationSpeed;
+				let tempOrientation = angle;
+				if(Math.abs(angleDifference) > zombie.rotationSpeed){
+					tempOrientation = zombie.orientation + Math.sign(angleDifference) * zombie.rotationSpeed;
 				}
 
-				if(Math.abs(angleDifference) <= Math.PI/2){
-					if(zombie.speed < zombie.topSpeed){
-						zombie.speed += zombie.acceleration;
-					}
+				//zombieToZombieCollision influences speed so calcs come if false
+				if(zombieToZombieCollisionResolve(zombie)){
+					//tempOrientation = zombie.orientation + (Math.sign(angleDifference * zombie.rotationSpeed)/2);
 				} else {
-					if(zombie.speed > 0){
-						zombie.speed -= zombie.acceleration * 3;
+					if(Math.abs(angleDifference) <= Math.PI/2){
+						if(zombie.speed < zombie.topSpeed){
+							zombie.speed += zombie.acceleration;
+						}
+					} else {
+						if(zombie.speed > 0){
+							zombie.speed -= zombie.acceleration * 3;
+						}
 					}
 				}
 
-				const dx = -Math.sin(zombie.orientation) * zombie.speed;
-				const dy = Math.cos(zombie.orientation) * zombie.speed;
-				
+				const dx = -Math.sin(tempOrientation) * zombie.speed;
+				const dy = Math.cos(tempOrientation) * zombie.speed;
+				zombie.orientation = tempOrientation;
 				zombie.x += dx;
 				zombie.y += dy;
-				
-				zombieToZombieCollisionResolve(zombie);
 			});
 		}
 
@@ -520,9 +521,9 @@
 						let xDiff = player.x - zombie.x;
 						let yDiff = player.y - zombie.y;
 						if(Math.abs(xDiff) > Math.abs(yDiff)){
-							player.x += Math.sign(xDiff) * 1;
+							player.x += Math.sign(xDiff) * 5;
 						} else {
-							player.y += Math.sign(yDiff) * 1;
+							player.y += Math.sign(yDiff) * 5;
 						}
 					}
 				}
@@ -561,8 +562,13 @@
 		}
 
 		function zombieToZombieCollisionResolve(zombie1){
+			//Adjusts speed based on orientation of collision and closeness to player
+			let collision = false;
 			zombieList.forEach(zombie2 => {
 				if(zombie1.x === zombie2.x && zombie1.y === zombie2.y){
+					return;
+				}
+				if(collision){
 					return;
 				}
 				let sidePoints = zombiePointMap(zombie2);
@@ -572,17 +578,22 @@
 				damagePoints = rotateAboutZombie(zombie2, damagePoints);
 					
 				if(zombieToZombieCollisionDetector(zombie1, zombie2, sidePoints, damagePoints)){
-					while(zombieToZombieCollisionDetector(zombie1, zombie2, sidePoints, damagePoints)){
-						let xDiff = zombie1.x - zombie2.x;
-						let yDiff = zombie1.y - zombie2.y;
-						if(Math.abs(xDiff) > Math.abs(yDiff)){
-							zombie1.x += Math.sign(xDiff) * 1;
-						} else {
-							zombie1.y += Math.sign(yDiff) * 1;
+					let zombie1Diff = Math.sqrt(Math.pow(player.x - zombie1.x, 2) + Math.pow(player.y - zombie1.y, 2));
+					let zombie2Diff = Math.sqrt(Math.pow(player.x - zombie2.x, 2) + Math.pow(player.y - zombie2.y, 2));
+					if(zombie1Diff > zombie2Diff){
+						collision = true;
+						const collisionAngle = Math.PI - zombie1.orientation - zombie2.orientation;
+						if(collisionAngle > 45 * (180/Math.PI)){
+							zombie1.speed = 0;
+							zombie2.speed = 0;
+						}
+						if(zombie1.speed > zombie2.speed){
+							zombie1.speed = zombie2.speed - zombie1.acceleration;
 						}
 					}
 				}
 			});
+			return collision;
 		}
 
 		function zombieToZombieCollisionDetector(zombie1, zombie2, sidePoints, damagePoints){
