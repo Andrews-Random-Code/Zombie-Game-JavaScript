@@ -40,6 +40,11 @@
 
 		let ammoList = [];
 		let zombieList = [];
+
+		const weaponSpawnMin = 2 * fps;
+		const weaponSpawnMax = 10 * fps;
+		let weaponSpawnTimer = 0;
+		let weaponSpawnList = [];
 //MAIN LOOP
 		function gameLoop(){
 			if(fpsControl()){
@@ -56,6 +61,8 @@
 			moveAmmo();
 			zombieSpawn();
 			moveZombie();
+			weaponSpawn();
+			weaponUpdate();
 	
 			console.log(player.health);
 			if(player.health <= 0){
@@ -72,6 +79,7 @@
 			drawPlayer();
 			drawAmmo();
 			drawZombie();
+			drawWeapon();
 
 			//tester();
 		}
@@ -275,10 +283,38 @@
 			damage: 10,
 			coolDownMax: 40,
 			coolDownCurrent: 0,
-			spread: 5 * (Math.PI/180),
+			maxSpread: 5 * (Math.PI/180),
 			bulletSpeed: 10,
 			bulletRadius: 2,
+			projectileCount: 1,
+			duration: null,
 		};
+
+		const subMachineGun = {
+			name: "SMG",
+			damage: 5,
+			coolDownMax: 5,
+			coolDownCurrent: 0,
+			maxSpread: 20 * (Math.PI/180),
+			bulletSpeed: 10,
+			bulletRadius: 2,
+			projectileCount: 1,
+			duration: 0,
+		};
+
+		const shotgun = {
+			name: "SG",
+			damage: 10,
+			coolDownMax: 80,
+			coolDownCurrent: 0,
+			maxSpread: 30 * (Math.PI/180),
+			bulletSpeed: 10,
+			bulletRadius: 2,
+			projectileCount: 8,
+			duration: 0,
+		};
+
+		const weaponList = [subMachineGun, shotgun];
 
 		function bulletSpecs(x, y, dx, dy, damage){
 			this.x = x;
@@ -295,19 +331,40 @@
 				return;
 			}
 
+			let tempWeapon = baseWeapon;
+			weaponList.forEach(weapon => {
+				if(weapon.duration > 0){
+					tempWeapon = weapon;
+				}
+			});
+
 			if(mouseClick){
-				if(baseWeapon.coolDownCurrent <= 0){
-					const dx = Math.sin(player.orientation) * baseWeapon.bulletSpeed;
-					const dy = -(Math.cos(player.orientation) * baseWeapon.bulletSpeed);
-					const tempX = player.x + player.rifleXOffset + 2;
-					const tempY = player.y - 13 * player.scale;
-					const newX = player.x + Math.cos(player.orientation) * (tempX - player.x) - Math.sin(player.orientation) * (tempY - player.y);
-					const newY = player.y + Math.sin(player.orientation) * (tempX - player.x) + Math.cos(player.orientation) * (tempY - player.y);
-					const bullet = new bulletSpecs(newX, newY, dx, dy, baseWeapon.damage);
-					ammoList.push(bullet);
-					baseWeapon.coolDownCurrent = baseWeapon.coolDownMax;
+				if(tempWeapon.coolDownCurrent <= 0){
+					for(let i = 0; i < tempWeapon.projectileCount; i++){
+						const bulletSpread = (Math.random() - 0.5) * tempWeapon.maxSpread;
+						const dx = Math.sin(player.orientation + bulletSpread) * tempWeapon.bulletSpeed;
+						const dy = -(Math.cos(player.orientation + bulletSpread) * tempWeapon.bulletSpeed);
+						const tempX = player.x + player.rifleXOffset + 2;
+						const tempY = player.y - 13 * player.scale;
+						const newX = player.x + Math.cos(player.orientation) * (tempX - player.x) - Math.sin(player.orientation) * (tempY - player.y);
+						const newY = player.y + Math.sin(player.orientation) * (tempX - player.x) + Math.cos(player.orientation) * (tempY - player.y);
+						const bullet = new bulletSpecs(newX, newY, dx, dy, tempWeapon.damage);
+						ammoList.push(bullet);
+						tempWeapon.coolDownCurrent = tempWeapon.coolDownMax;
+					}
 				}
 			}
+
+			if(tempWeapon.duration > 0){
+				tempWeapon.duration--;
+			}
+
+			weaponList.forEach(weapon => {
+				if(weapon.coolDownCurrent > 0){
+					weapon.coolDownCurrent--;
+				}
+			});
+
 			if(baseWeapon.coolDownCurrent > 0){
 				baseWeapon.coolDownCurrent--;
 			}
@@ -362,6 +419,114 @@
 			});
 			return collision;
 		}
+//WEAPON SPAWN
+		function weaponSpecs(x, y, weaponIndex){
+			this.x = x;
+			this.y = y;
+			this.weaponIndex = weaponIndex;
+			console.log(weaponIndex);
+			this.weapon = weaponList[weaponIndex];
+			this.weaponName = this.weapon.name;
+			this.radius = 10;
+			this.path = new Path2D();
+			this.path.arc(x, y, this.radius, 0, 2 * Math.PI);
+			this.pointMap = weaponPointMap(x, y, this.radius);
+			this.visible = true;
+			this.duration = 5 * fps;
+		}
+		function weaponSpawn(){
+			if(weaponSpawnTimer <= 0){
+				let weaponIndex = Math.floor(Math.random() * weaponList.length);
+				
+				let verify = false;
+				let locX = 0;
+				let locY = 0;
+				while(!verify){
+					locX = Math.floor(Math.random() * canvas.width) + 1;
+					locY = Math.floor(Math.random() * canvas.height) + 1;
+					if(Math.abs(player.x - locX) > 50 && Math.abs(player.y - locY) > 50){
+						verify = true;
+					}
+				}
+				const weapon = new weaponSpecs(locX, locY, weaponIndex);
+				weaponSpawnList.push(weapon);
+				
+				weaponSpawnTimer = Math.floor(Math.random() * weaponSpawnMax) + weaponSpawnMin;
+			} else {
+				weaponSpawnTimer--;
+			}
+		}
+
+		function weaponUpdate(){
+			weaponSpawnList.forEach(weapon => {
+				weapon.duration--;
+				if(weapon.duration < 0){
+					weapon.visible = false;
+				}
+			});
+
+			weaponCollision();
+
+			weaponSpawnList = weaponSpawnList.filter(weaponSpawn => weaponSpawn.visible);
+		}
+
+		function drawWeapon(){
+			weaponSpawnList.forEach(weaponSpawn => {
+				context.save();
+				context.fillStyle = "red";
+				context.fill(weaponSpawn.path);
+
+				const xPos = weaponSpawn.x - (weaponSpawn.weaponName.length * 3);
+				const yPos = weaponSpawn.y + 3;
+				context.font = "8px Verdana";
+				context.strokeStyle = "white";
+				context.strokeText(weaponSpawn.weaponName, xPos, yPos);
+				context.restore();
+			});
+		}
+
+		function weaponPointMap(x, y, radius){
+			let pointList = [];
+			const pointTotal = 20;
+
+			for (let i = 0; i < pointTotal; i++){
+				const angle = (i / pointTotal) * 2 * Math.PI;
+				const px = x + radius * Math.cos(angle);
+				const py = y + radius * Math.sin(angle);
+				pointList.push([px, py]);
+			}
+			return pointList;
+		}
+
+		function weaponCollision(){
+			weaponSpawnList.forEach(weaponSpawn => {
+				if(Math.abs(player.x - weaponSpawn.x) > weaponSpawn.radius * 2 || Math.abs(player.y - weaponSpawn.y) > weaponSpawn.radius * 2){
+					return;
+				}
+				let collision = false;
+				for(let i = 0; i < weaponSpawn.pointMap.length; i++){
+					if(collision){
+						return;
+					}
+					context.save();
+					context.translate(player.x, player.y);
+    					context.rotate(player.orientation);
+					
+					if(context.isPointInPath(player.hitbox, weaponSpawn.pointMap[i][0], weaponSpawn.pointMap[i][1])){
+						collision = true;
+						weaponList.forEach(weapon => {
+							weapon.duration = 0;
+						});
+						weaponSpawn.weapon.duration = 5 * fps;
+						weaponSpawn.visible = false;
+						context.restore();
+						return;
+					}
+					context.restore();
+				}
+			});
+		}
+
 //ZOMBIE
 		function zombieSpecs(x, y){
 			this.x = x;
