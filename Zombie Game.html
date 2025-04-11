@@ -14,13 +14,29 @@
 			margin: 0;
 			font-family: Verdana, sans-serif;
 		}
-		canvas {
+		.wrapper {
+			border: 1px solid white;
+			padding: 0px;
+			margin: 0px;
+		}
+
+		#playSpace {
 			border: 1px solid white;
 		}
 	</style>
 </head>
 <body>
-	<canvas id="playSpace" width="700" height="700"></canvas>
+	<div class="wrapper">
+		<div class="upper">
+			<canvas id="scoreboard" width="800" height="50"></canvas>
+		</div>
+		<div class="lower">
+			<canvas id="HP" width="50" height="700"></canvas>
+			<canvas id="playSpace" width="700" height="700"></canvas>
+			<canvas id="weapon" width="50" height="700"></canvas>
+		</div>
+	</div>
+			
 	<script>
 		const canvas = document.getElementById("playSpace");
 		const context = canvas.getContext("2d");
@@ -37,6 +53,7 @@
 		var mouseClickRecent = false;
 		let gameOn = true;
 		let gameTime = 0;
+		let gameScore = 0;
 
 		let ammoList = [];
 		let zombieList = [];
@@ -80,6 +97,9 @@
 			drawAmmo();
 			drawZombie();
 			drawWeapon();
+			drawScore();
+			drawHealth();
+			drawActiveWeapon();
 
 			//tester();
 		}
@@ -107,6 +127,8 @@
 			rifleXOffset: 5,
 			health: 100,
 			hurt: false,
+			damageCooldownCurrent: 0,
+			damageCooldownMax: fps,
 		}
 
 		function movePlayer(){
@@ -280,6 +302,7 @@
 		}
 //WEAPON
 		const baseWeapon = {
+			hudName: "Pistol",
 			damage: 10,
 			coolDownMax: 40,
 			coolDownCurrent: 0,
@@ -288,10 +311,12 @@
 			bulletRadius: 2,
 			projectileCount: 1,
 			duration: null,
+			color: "#E8E8E8",
 		};
 
 		const subMachineGun = {
 			name: "SMG",
+			hudName: "Sub Machine Gun",
 			damage: 5,
 			coolDownMax: 5,
 			coolDownCurrent: 0,
@@ -300,27 +325,59 @@
 			bulletRadius: 2,
 			projectileCount: 1,
 			duration: 0,
+			color: "#0730FF",
 		};
 
 		const shotgun = {
 			name: "SG",
+			hudName: "Shot Gun",
 			damage: 10,
 			coolDownMax: 80,
 			coolDownCurrent: 0,
 			maxSpread: 30 * (Math.PI/180),
-			bulletSpeed: 10,
+			bulletSpeed: 8,
 			bulletRadius: 2,
 			projectileCount: 8,
 			duration: 0,
+			color: "#D80103",
 		};
 
-		const weaponList = [subMachineGun, shotgun];
+		const assaultRifle = {
+			name: "AR",
+			hudName: "Assault Rifle",
+			damage: 20,
+			coolDownMax: 20,
+			coolDownCurrent: 0,
+			maxSpread: 10 * (Math.PI/180),
+			bulletSpeed: 20,
+			bulletRadius: 3,
+			projectileCount: 1,
+			duration: 0,
+			color: "#95A733",
+		};
 
-		function bulletSpecs(x, y, dx, dy, damage){
+		const sniperRifle = {
+			name: "SR",
+			hudName: "Sniper Rifle",
+			damage: 50,
+			coolDownMax: 60,
+			coolDownCurrent: 0,
+			maxSpread: 0 * (Math.PI/180),
+			bulletSpeed: 40,
+			bulletRadius: 5,
+			projectileCount: 1,
+			duration: 0,
+			color: "#BF3BE3",
+		};
+
+		const weaponList = [subMachineGun, shotgun, assaultRifle, sniperRifle];
+
+		function bulletSpecs(x, y, dx, dy, radius, damage){
 			this.x = x;
 			this.y = y;
 			this.dx = dx;
 			this.dy = dy;
+			this.radius = radius;
 			this.damage = damage;
 			this.knockback = 0.50;
 			this.visible = true;
@@ -348,7 +405,7 @@
 						const tempY = player.y - 13 * player.scale;
 						const newX = player.x + Math.cos(player.orientation) * (tempX - player.x) - Math.sin(player.orientation) * (tempY - player.y);
 						const newY = player.y + Math.sin(player.orientation) * (tempX - player.x) + Math.cos(player.orientation) * (tempY - player.y);
-						const bullet = new bulletSpecs(newX, newY, dx, dy, tempWeapon.damage);
+						const bullet = new bulletSpecs(newX, newY, dx, dy, tempWeapon.bulletRadius, tempWeapon.damage);
 						ammoList.push(bullet);
 						tempWeapon.coolDownCurrent = tempWeapon.coolDownMax;
 					}
@@ -391,7 +448,7 @@
 			ammoList.forEach(bullet => {
 				context.fillStyle = "yellow";
 				context.beginPath();
-				context.arc(bullet.x, bullet.y, 2, 0, Math.PI * 2);
+				context.arc(bullet.x, bullet.y, bullet.radius, 0, Math.PI * 2);
 				context.closePath();
 				context.fill();
 			});
@@ -410,6 +467,7 @@
 					zombie.health -= bullet.damage;
 					if(zombie.health <= 0){
 						zombie.visible = false;
+						gameScore += 100;
 					}
 					zombieList = zombieList.filter(zombie => zombie.visible);
 					context.restore();
@@ -473,7 +531,7 @@
 		function drawWeapon(){
 			weaponSpawnList.forEach(weaponSpawn => {
 				context.save();
-				context.fillStyle = "red";
+				context.fillStyle = weaponSpawn.weapon.color;
 				context.fill(weaponSpawn.path);
 
 				const xPos = weaponSpawn.x - (weaponSpawn.weaponName.length * 3);
@@ -697,6 +755,9 @@
 			if(player.hurt){
 				player.health -= 20;
 				player.hurt = false;
+				player.damageCooldownCurrent = player.damageCooldownMax;
+			} else if(player.damageCooldownCurrent > 0){
+				player.damageCooldownCurrent--;
 			}
 		}
 		
@@ -715,7 +776,7 @@
 				}
 
 				for(let i = 0; i < damagePoints.length; i++){
-					if(context.isPointInPath(player.hitbox, damagePoints[i][0], damagePoints[i][1])){
+					if(context.isPointInPath(player.hitbox, damagePoints[i][0], damagePoints[i][1]) && player.damageCooldownCurrent == 0){
 						context.restore();
 						player.hurt = true;
 						return true;
@@ -834,6 +895,66 @@
 				pointList[i][1] = newY;
 			}
 			return pointList;
+		}
+
+//HUD
+		function drawScore(){
+			const scoreboard = document.getElementById("scoreboard");
+			const scoreContext = scoreboard.getContext("2d");
+
+			scoreContext.clearRect(0, 0, scoreboard.width, scoreboard.height);
+
+			scoreContext.save();
+			scoreContext.font = "60px Verdana";
+			let fontHeight = parseInt(scoreContext.font)/2.6;
+			scoreContext.fillStyle = "white";
+			scoreContext.textAlign = "center";
+			scoreContext.fillText(gameScore, scoreboard.width/2, (scoreboard.height/2) + fontHeight);
+			scoreContext.restore();
+
+		}
+
+		function drawHealth(){
+			const hpCanvas = document.getElementById("HP");
+			const hpContext = hpCanvas.getContext("2d");
+
+			hpContext.clearRect(0, 0, hpCanvas.width, hpCanvas.height);
+
+			const hpHeight = hpCanvas.height * (player.health / 100);
+			
+			hpContext.save();
+			hpContext.fillStyle = "red";
+			hpContext.fillRect(0, hpCanvas.height, hpCanvas.width, -hpHeight);
+			hpContext.restore();
+		}
+		
+		function drawActiveWeapon(){
+			const weaponCanvas = document.getElementById("weapon");
+			const weaponContext = weaponCanvas.getContext("2d");
+
+			weaponContext.clearRect(0, 0, weaponCanvas.width, weaponCanvas.height);
+
+			let tempWeapon = baseWeapon;
+			weaponList.forEach(weapon => {
+				if(weapon.duration > 0){
+					tempWeapon = weapon;
+				}
+			});
+
+			let weaponProgress = weaponCanvas.height * tempWeapon.duration/(5 * fps);
+
+			weaponContext.save();
+			weaponContext.fillStyle = tempWeapon.color;
+			weaponContext.fillRect(0, weaponCanvas.height, weaponCanvas.width, -weaponProgress);
+
+			weaponContext.font = "40px Verdana";
+			weaponContext.textAlign = "center";
+			weaponContext.fillStyle = "grey";
+			let fontHeight = parseInt(weaponContext.font)/3;
+			weaponContext.translate(weaponCanvas.width/2, weaponCanvas.height/2);
+			weaponContext.rotate(270 * Math.PI/180);
+			weaponContext.fillText(tempWeapon.hudName, 0, 0 + fontHeight);
+			weaponContext.restore();
 		}
 
 //TEST STUFF
