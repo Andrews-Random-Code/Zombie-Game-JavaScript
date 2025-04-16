@@ -81,13 +81,8 @@
 			weaponSpawn();
 			weaponUpdate();
 	
-			console.log(player.health);
-			if(player.health <= 0){
-				alert("The player is dead");
-				//prevent loop
-				setTimeout(() => {
-        				window.location.reload();
-    				}, 0);
+			if(!gameOn){
+				gameOverReset();
 			}
 		}
 
@@ -101,7 +96,9 @@
 			drawHealth();
 			drawActiveWeapon();
 
-			//tester();
+			if(!gameOn){
+				gameOverText();
+			}
 		}
 
 		function fpsControl(){
@@ -482,7 +479,6 @@
 			this.x = x;
 			this.y = y;
 			this.weaponIndex = weaponIndex;
-			console.log(weaponIndex);
 			this.weapon = weaponList[weaponIndex];
 			this.weaponName = this.weapon.name;
 			this.radius = 10;
@@ -492,7 +488,12 @@
 			this.visible = true;
 			this.duration = 5 * fps;
 		}
+
 		function weaponSpawn(){
+			if(!gameOn){
+				return;
+			}
+
 			if(weaponSpawnTimer <= 0){
 				let weaponIndex = Math.floor(Math.random() * weaponList.length);
 				
@@ -609,9 +610,6 @@
 		}
 
 		function moveZombie(){
-			if(!gameOn){
-				return;
-			}
 			zombieList.forEach(zombie => {
 				if(zombie.disableTimer > 0){
 					zombie.disableTimer--;
@@ -696,7 +694,6 @@
 		}
 
 		function zombieSpawn(){
-			//reuse asteroid spawn time
 			if(zombieList.length == 0 && gameTime > 0){
 				newZombie();
 			}
@@ -756,6 +753,9 @@
 				player.health -= 20;
 				player.hurt = false;
 				player.damageCooldownCurrent = player.damageCooldownMax;
+				if(player.health <= 0){
+					gameOn = false;
+				}
 			} else if(player.damageCooldownCurrent > 0){
 				player.damageCooldownCurrent--;
 			}
@@ -957,27 +957,38 @@
 			weaponContext.restore();
 		}
 
-//TEST STUFF
-		function tester(){
-			const point = [100,200];
-			context.save();
+//GAME OVER
+		function gameOverReset(){
+			if(keys["Enter"]){
+				gameOn = true;
+				gameTime = 0;
+				gameScore = 0;
 			
-			let path = new Path2D();
-			path.arc(point[0], point[1], 5, 0, 2 * Math.PI);
+				player.x = canvas.width/2;
+				player.y = canvas.height/2;
+				player.speedX = 0;
+				player.speedY = 0;
+				player.health = 100;
+				player.hurt = false;
 
-    			context.fillStyle = "white";
-    			context.fill(path);
+				zombieList = [];
+				ammoList = [];
 
-    			// Create a transformed hitbox path to check the point
-    			context.translate(player.x, player.y);
-    			context.rotate(player.orientation);
+				weaponList.forEach(weapon => {
+					weapon.duration = 0;
+				});
+			}
+		}		
 
-    			if (context.isPointInPath(player.hitbox, point[0], point[1])) {
-				context.restore();
-				context.save();
-        			context.fillStyle = "blue";
-				context.fill(path);
-    			}
+		function gameOverText(){
+			const textX = canvas.width/2;
+			const textY = canvas.height/5;
+
+			context.save();
+			context.font = "39px Verdana";
+			context.textAlign = "center";
+			context.fillStyle = "white";
+			context.fillText("Game Over! Press 'Enter' to restart", textX, textY);
 			context.restore();
 		}
 //INPUTS
