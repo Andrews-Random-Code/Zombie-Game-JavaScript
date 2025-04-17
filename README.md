@@ -6,8 +6,11 @@ Fight zombies in a top down arcade shooter. Grab weapon power ups to gain a few 
 
 ## Controls:
 Mouse to aim
+
 Click to shoot
+
 WASD to move
+
 Enter to reset the game on game over
 
 ## Work in Progress:
